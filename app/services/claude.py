@@ -35,9 +35,6 @@ def generate_image_prompt(story: str) -> str:
                     f"Based on this children's story, write a short image generation prompt "
                     f"(max 50 words) for a colorful, cute, child-safe illustration. "
                     f"Describe only the main scene with characters and setting. No text in image. "
-                    f"IMPORTANT: Never use copyrighted character names (no Goku, Pikachu, Mickey, "
-                    f"Spider-Man, etc). Instead describe them visually "
-                    f"(e.g. 'a cheerful boy in orange martial arts clothes'). "
                     f"Story: {story[:500]}"
                 ),
             }
