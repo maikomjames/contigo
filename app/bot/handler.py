@@ -41,7 +41,7 @@ def handle_message(from_number: str, body: str):
         return
 
     try:
-        image_bytes = generate_image(story)
+        image_bytes = generate_image(text)
         filename = f"{uuid.uuid4()}.png"
         filepath = IMAGE_DIR / filename
         filepath.write_bytes(image_bytes)
