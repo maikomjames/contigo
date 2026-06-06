@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from app.services.claude import generate_story, generate_image_prompt
 from app.services.image import generate_image
+from app.services.tts import generate_audio
+from app.config import PUBLIC_URL
 
 router = APIRouter()
 
@@ -55,6 +57,7 @@ def playground():
   <div id="result">
     <img id="img" src="" alt="Ilustração">
     <div id="story" class="story"></div>
+    <audio id="audio" controls style="width:100%;margin-top:24px;"></audio>
   </div>
 
   <script>
@@ -82,6 +85,7 @@ def playground():
           .filter(l => l.trim())
           .map(l => `<p>${l}</p>`)
           .join("");
+        document.getElementById("audio").src = data.audio_url;
         document.getElementById("result").style.display = "block";
       } catch (err) {
         document.getElementById("error").textContent = err.message;
@@ -97,14 +101,19 @@ def playground():
 
 
 @router.post("/story")
-def create_story(prompt: str = Query(..., description="Ex: pikachu na floresta")):
+def create_story(request: Request, prompt: str = Query(..., description="Ex: pikachu na floresta")):
     story = generate_story(prompt)
 
     image_prompt = generate_image_prompt(story)
     image_url = generate_image(image_prompt)
 
+    audio_path = generate_audio(story)
+    base = str(request.base_url).rstrip("/")
+    audio_url = f"{base}/audio/{audio_path.name}"
+
     return JSONResponse({
         "story": story,
         "image_prompt": image_prompt,
         "image_url": image_url,
+        "audio_url": audio_url,
     })

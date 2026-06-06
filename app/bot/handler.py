@@ -5,7 +5,7 @@ from app.services.image import generate_image
 from app.services.tts import generate_audio
 from app.config import PUBLIC_URL
 
-AUDIO_ENABLED = False
+AUDIO_ENABLED = True
 
 logger = logging.getLogger(__name__)
 
