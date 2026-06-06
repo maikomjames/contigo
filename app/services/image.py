@@ -10,10 +10,9 @@ def generate_image(story: str) -> str:
         f"sem texto, baseada nesta história: {story[:300]}"
     )
     response = client.images.generate(
-        model="dall-e-3",
+        model="dall-e-2",
         prompt=prompt,
-        size="1024x1024",
-        quality="standard",
+        size="512x512",
         n=1,
     )
     return response.data[0].url
