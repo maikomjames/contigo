@@ -1,5 +1,8 @@
-from app.services.twilio import send_message
+from app.services.twilio import send_message, send_media, send_audio
 from app.services.claude import generate_story
+from app.services.image import generate_image
+from app.services.tts import generate_audio
+from app.config import PUBLIC_URL
 
 WELCOME = (
     "Oi! Eu sou o *Contigo* 🌙\n\n"
@@ -26,3 +29,17 @@ def handle_message(from_number: str, body: str):
             to=from_number,
             body="Ops, tive um problema para criar a história. Tente novamente em instantes.",
         )
+        return
+
+    try:
+        image_url = generate_image(story)
+        send_media(to=from_number, body="", media_url=image_url)
+    except Exception:
+        pass
+
+    try:
+        audio_path = generate_audio(story)
+        audio_url = f"https://{PUBLIC_URL}/audio/{audio_path.name}"
+        send_audio(to=from_number, audio_url=audio_url)
+    except Exception:
+        pass
