@@ -50,21 +50,24 @@ def generate_story(user_input: str) -> str:
 def generate_image_prompt(story: str) -> str:
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=150,
+        max_tokens=200,
         messages=[
             {
                 "role": "user",
                 "content": (
-                    f"Based on this children's story, write a short image generation prompt "
-                    f"(max 50 words) for a colorful, cute, child-safe illustration. "
-                    f"Describe only the main scene with characters and setting. No text in image. "
-                    f"Reply with ONLY the prompt text, no titles, no labels, no markdown. "
-                    f"Story: {story[:500]}"
+                    f"You are an art director creating an illustration prompt for a children's book.\n\n"
+                    f"Read the full story below and identify the single most visually impactful or emotionally rich scene.\n\n"
+                    f"Write an image generation prompt in English (max 60 words) describing that scene. Include:\n"
+                    f"- The character's specific visual traits (color, shape, outfit, distinctive features) — "
+                    f"do NOT rely on the character's name alone, describe what they look like\n"
+                    f"- The setting with colors and atmosphere\n"
+                    f"- The action or emotion of the moment\n\n"
+                    f"Reply with ONLY the prompt text. No titles, no labels, no markdown, no explanations.\n\n"
+                    f"Story:\n{story}"
                 ),
             }
         ],
     )
-    # Remove qualquer linha que seja um header markdown (ex: # Image Generation Prompt)
     lines = message.content[0].text.strip().splitlines()
     clean_lines = [l for l in lines if not l.startswith("#")]
     return " ".join(clean_lines).strip()
