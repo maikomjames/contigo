@@ -5,11 +5,10 @@ from app.config import OPENAI_API_KEY
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-def generate_image(user_input: str) -> bytes:
+def generate_image(image_prompt: str) -> bytes:
     prompt = (
-        f"Children's book illustration, colorful, cute, safe for kids, no text, "
-        f"featuring: {user_input[:150]}. "
-        f"Soft colors, friendly characters, storybook art style."
+        f"Children's book illustration, colorful, cute, safe for kids, no text. "
+        f"{image_prompt}"
     )
     response = client.images.generate(
         model="gpt-image-1",

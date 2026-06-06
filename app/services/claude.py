@@ -22,3 +22,22 @@ def generate_story(user_input: str) -> str:
         ],
     )
     return message.content[0].text
+
+
+def generate_image_prompt(story: str) -> str:
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=150,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Based on this children's story, write a short image generation prompt "
+                    f"(max 50 words) for a colorful, cute, child-safe illustration. "
+                    f"Describe only the main scene with characters and setting. No text in image. "
+                    f"Story: {story[:500]}"
+                ),
+            }
+        ],
+    )
+    return message.content[0].text
