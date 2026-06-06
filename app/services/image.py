@@ -1,8 +1,8 @@
-import base64
-from openai import OpenAI
-from app.config import OPENAI_API_KEY
+from google import genai
+from google.genai import types
+from app.config import GOOGLE_API_KEY
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = genai.Client(api_key=GOOGLE_API_KEY)
 
 
 def generate_image(image_prompt: str) -> bytes:
@@ -10,12 +10,12 @@ def generate_image(image_prompt: str) -> bytes:
         f"Children's book illustration, colorful, cute, safe for kids, no text. "
         f"{image_prompt}"
     )
-    response = client.images.generate(
-        model="gpt-image-1",
+    response = client.models.generate_images(
+        model="imagen-3.0-generate-002",
         prompt=prompt,
-        size="1024x1024",
-        quality="low",
-        n=1,
+        config=types.GenerateImagesConfig(
+            number_of_images=1,
+            aspect_ratio="1:1",
+        ),
     )
-    image_base64 = response.data[0].b64_json
-    return base64.b64decode(image_base64)
+    return response.generated_images[0].image.image_bytes
