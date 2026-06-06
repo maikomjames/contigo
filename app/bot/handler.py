@@ -1,18 +1,13 @@
-import uuid
 import logging
-from pathlib import Path
 from app.services.twilio import send_message, send_media, send_audio
 from app.services.claude import generate_story, generate_image_prompt
 from app.services.image import generate_image
 from app.services.tts import generate_audio
 from app.config import PUBLIC_URL
 
-AUDIO_ENABLED = True
+AUDIO_ENABLED = False
 
 logger = logging.getLogger(__name__)
-
-IMAGE_DIR = Path("/tmp/contigo_images")
-IMAGE_DIR.mkdir(exist_ok=True)
 
 WELCOME = (
     "Oi! Eu sou o *Contigo* 🌙\n\n"
@@ -45,11 +40,7 @@ def handle_message(from_number: str, body: str):
     try:
         image_prompt = generate_image_prompt(story)
         logger.info("Prompt da imagem: %s", image_prompt)
-        image_bytes = generate_image(image_prompt)
-        filename = f"{uuid.uuid4()}.png"
-        filepath = IMAGE_DIR / filename
-        filepath.write_bytes(image_bytes)
-        image_url = f"https://{PUBLIC_URL}/images/{filename}"
+        image_url = generate_image(image_prompt)
         logger.info("Imagem gerada: %s", image_url)
         send_media(to=from_number, body=" ", media_url=image_url)
     except Exception as e:

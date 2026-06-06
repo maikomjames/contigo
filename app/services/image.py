@@ -1,7 +1,7 @@
 import fal_client
 
 
-def generate_image(image_prompt: str) -> bytes:
+def generate_image(image_prompt: str) -> str:
     prompt = (
         f"Children's book illustration, colorful, cute, safe for kids, no text. "
         f"{image_prompt}"
@@ -15,9 +15,4 @@ def generate_image(image_prompt: str) -> bytes:
         },
     )
 
-    image_url = result["images"][0]["url"]
-
-    import httpx
-    response = httpx.get(image_url)
-    response.raise_for_status()
-    return response.content
+    return result["images"][0]["url"]
