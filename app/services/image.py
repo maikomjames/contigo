@@ -10,12 +10,15 @@ def generate_image(image_prompt: str) -> bytes:
         f"Children's book illustration, colorful, cute, safe for kids, no text. "
         f"{image_prompt}"
     )
-    response = client.models.generate_images(
-        model="imagen-3.0-generate-002",
-        prompt=prompt,
-        config=types.GenerateImagesConfig(
-            number_of_images=1,
-            aspect_ratio="1:1",
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-preview-image-generation",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE", "TEXT"],
         ),
     )
-    return response.generated_images[0].image.image_bytes
+    for part in response.candidates[0].content.parts:
+        if part.inline_data is not None:
+            return part.inline_data.data
+
+    raise ValueError("Nenhuma imagem retornada pelo Gemini")
