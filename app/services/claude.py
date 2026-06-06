@@ -6,7 +6,8 @@ client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 SYSTEM_PROMPT = """Você é um contador de histórias infantis especialista.
 Crie histórias envolventes, com linguagem simples e adequada para crianças de 3 a 8 anos.
 A história deve ter começo, meio e fim, com uma mensagem positiva sutil.
-Escreva em português do Brasil. Máximo de 300 palavras."""
+Escreva em português do Brasil. Máximo de 300 palavras.
+Não mencione hora de dormir, noite ou sonhos a menos que o usuário peça explicitamente."""
 
 
 def generate_story(user_input: str) -> str:

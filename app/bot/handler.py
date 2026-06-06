@@ -10,9 +10,9 @@ AUDIO_ENABLED = False
 logger = logging.getLogger(__name__)
 
 WELCOME = (
-    "Oi! Eu sou o *Contigo* 🌙\n\n"
-    "Crio histórias personalizadas para você ler para seu filho na hora de dormir.\n\n"
-    "Me conta o que seu filho quer ouvir hoje — personagem, lugar, aventura. "
+    "Oi! Eu sou o *Contigo* ✨\n\n"
+    "Crio histórias infantis personalizadas com ilustração.\n\n"
+    "Me conta o que você quer ouvir hoje — personagem, lugar, aventura. "
     "Pode ser simples: _\"dinossauro na floresta\"_ ou _\"princesa no espaço\"_."
 )
 

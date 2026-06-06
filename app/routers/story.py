@@ -37,8 +37,8 @@ def playground():
   </style>
 </head>
 <body>
-  <h1>🌙 Contigo</h1>
-  <p class="subtitle">Histórias personalizadas para a hora de dormir</p>
+  <h1>Contigo</h1>
+  <p class="subtitle">Histórias infantis personalizadas com ilustração</p>
 
   <div class="form">
     <input id="prompt" type="text" placeholder="Ex: pikachu na floresta, goku no espaço..." autofocus>
@@ -47,7 +47,7 @@ def playground():
 
   <div id="loading">
     <div class="spinner"></div>
-    Gerando história, imagem e áudio...
+    Gerando história e ilustração...
   </div>
 
   <div id="error"></div>
