@@ -1,8 +1,4 @@
-from google import genai
-from google.genai import types
-from app.config import GOOGLE_API_KEY
-
-client = genai.Client(api_key=GOOGLE_API_KEY)
+import fal_client
 
 
 def generate_image(image_prompt: str) -> bytes:
@@ -10,12 +6,18 @@ def generate_image(image_prompt: str) -> bytes:
         f"Children's book illustration, colorful, cute, safe for kids, no text. "
         f"{image_prompt}"
     )
-    response = client.models.generate_images(
-        model="imagen-4.0-fast-generate-001",
-        prompt=prompt,
-        config=types.GenerateImagesConfig(
-            number_of_images=1,
-            aspect_ratio="1:1",
-        ),
+
+    result = fal_client.subscribe(
+        "fal-ai/flux-1/dev",
+        arguments={
+            "prompt": prompt,
+            "image_size": "square_hd",
+        },
     )
-    return response.generated_images[0].image.image_bytes
+
+    image_url = result["images"][0]["url"]
+
+    import httpx
+    response = httpx.get(image_url)
+    response.raise_for_status()
+    return response.content

@@ -6,6 +6,6 @@ python-dotenv
 httpx
 anthropic
 openai
-google-genai
+fal-client
 supabase
 stripe
