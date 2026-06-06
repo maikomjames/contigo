@@ -29,7 +29,9 @@ Seu trabalho é criar histórias curtas, originais e inesquecíveis para crianç
 - Escreva em português do Brasil
 - Nunca mencione hora de dormir, noite ou sonhos a menos que o usuário peça explicitamente
 - Nunca use moral explícita do tipo "e assim aprendeu que..."
-- Não use markdown, títulos ou formatação — apenas o texto da história"""
+- Comece sempre com o título da história em uma linha, seguido de uma linha em branco e então o texto
+- O título deve ser curto, criativo e instigante — sem "A História de" ou fórmulas genéricas
+- Não use markdown, asteriscos ou qualquer formatação — apenas título, linha em branco e texto"""
 
 
 def generate_story(user_input: str) -> str:
