@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 from app.services.database import set_premium_expiry
 from app.services.whatsapp_db import set_whatsapp_premium
+from app.services.twilio import send_message
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -37,6 +38,17 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None, 
             else:
                 set_whatsapp_premium(ref)
                 logger.info("Premium WhatsApp ativado: phone=%s", ref)
+                try:
+                    send_message(
+                        to=f"whatsapp:{ref}",
+                        body=(
+                            "✅ Pagamento confirmado! Seu *Contigo Premium* está ativo por 30 dias.\n\n"
+                            "Agora você pode gerar histórias ilimitadas. "
+                            "Me conta o que seu filho quer ouvir hoje! 🎉"
+                        ),
+                    )
+                except Exception as e:
+                    logger.error("Erro ao enviar confirmação WhatsApp: %s", e)
         else:
             logger.warning("checkout.session.completed sem client_reference_id")
 
