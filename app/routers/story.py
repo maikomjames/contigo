@@ -4,8 +4,8 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from app.services.claude import generate_story, generate_image_prompt
 from app.services.image import generate_image
 from app.services.tts import generate_audio
-from app.services.database import get_user_from_token, count_stories_today, is_premium, log_story, ensure_profile, DAILY_LIMIT
-from app.config import SUPABASE_URL, SUPABASE_KEY
+from app.services.database import get_user_from_token, count_stories_today, is_premium, log_story, ensure_profile, get_profile, DAILY_LIMIT
+from app.config import SUPABASE_URL, SUPABASE_KEY, STRIPE_PAYMENT_LINK
 
 router = APIRouter()
 
@@ -154,7 +154,7 @@ def playground():
 
     <div class="upgrade-banner" id="upgrade-banner">
       <p>Você usou sua história gratuita de hoje. Assine para gerar histórias ilimitadas.</p>
-      <button class="primary" onclick="window.open('STRIPE_LINK', '_blank')">Assinar agora</button>
+      <button class="primary" onclick="openCheckout()">Assinar agora</button>
     </div>
 
     <div id="loading">
@@ -198,6 +198,13 @@ def playground():
       document.getElementById('app-section').style.display = 'flex'
       document.getElementById('user-email-display').textContent = session.user.email
       updateLimitDisplay()
+    }}
+
+    const PAYMENT_LINK = '{STRIPE_PAYMENT_LINK}'
+
+    function openCheckout() {{
+      const url = `${{PAYMENT_LINK}}?client_reference_id=${{currentSession.user.id}}&prefilled_email=${{encodeURIComponent(currentSession.user.email)}}`
+      window.open(url, '_blank')
     }}
 
     async function updateLimitDisplay() {{
@@ -326,9 +333,15 @@ def story_usage(authorization: Optional[str] = Header(None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(status_code=401)
+    profile = get_profile(user.id, token)
     premium = is_premium(user.id, token)
     count = count_stories_today(user.id, token)
-    return JSONResponse({"is_premium": premium, "count_today": count, "daily_limit": DAILY_LIMIT})
+    return JSONResponse({
+        "is_premium": premium,
+        "count_today": count,
+        "daily_limit": DAILY_LIMIT,
+        "premium_expires_at": profile.get("premium_expires_at"),
+    })
 
 
 @router.post("/story")

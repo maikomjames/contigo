@@ -1,6 +1,6 @@
 import logging
 from fastapi import FastAPI
-from app.routers import webhook, audio, story
+from app.routers import webhook, audio, story, stripe_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,6 +12,7 @@ app = FastAPI(title="Contigo")
 app.include_router(webhook.router)
 app.include_router(audio.router)
 app.include_router(story.router)
+app.include_router(stripe_router.router)
 
 
 @app.get("/")
