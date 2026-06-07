@@ -32,16 +32,29 @@ def count_stories_today(user_id: str, token: str) -> int:
     return response.count or 0
 
 
+def ensure_profile(user_id: str, token: str):
+    _client(token).table("profiles").upsert(
+        {"id": user_id, "is_premium": False},
+        on_conflict="id",
+        ignore_duplicates=True,
+    ).execute()
+
+
 def is_premium(user_id: str, token: str) -> bool:
-    response = (
-        _client(token)
-        .table("profiles")
-        .select("is_premium")
-        .eq("id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    return bool(response.data and response.data.get("is_premium"))
+    try:
+        response = (
+            _client(token)
+            .table("profiles")
+            .select("is_premium")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        if response and response.data:
+            return bool(response.data.get("is_premium"))
+        return False
+    except Exception:
+        return False
 
 
 def log_story(user_id: str, prompt: str, token: str):

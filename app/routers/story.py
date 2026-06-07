@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from app.services.claude import generate_story, generate_image_prompt
 from app.services.image import generate_image
 from app.services.tts import generate_audio
-from app.services.database import get_user_from_token, count_stories_today, is_premium, log_story, DAILY_LIMIT
+from app.services.database import get_user_from_token, count_stories_today, is_premium, log_story, ensure_profile, DAILY_LIMIT
 from app.config import SUPABASE_URL, SUPABASE_KEY
 
 router = APIRouter()
@@ -347,6 +347,8 @@ def create_story(
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Sessão inválida")
+
+    ensure_profile(user.id, token)
 
     if not is_premium(user.id, token):
         count = count_stories_today(user.id, token)
