@@ -134,7 +134,8 @@ def _handle_story(from_number: str, phone: str, text: str, profile: dict):
     if not is_whatsapp_premium(phone):
         count = count_whatsapp_stories_today(phone)
         if count >= DAILY_LIMIT:
-            link = f"{STRIPE_PAYMENT_LINK}?client_reference_id={phone}"
+            from urllib.parse import quote
+            link = f"{STRIPE_PAYMENT_LINK}?client_reference_id={quote(phone)}"
             send_message(to=from_number, body=LIMIT_MSG.format(link=link))
             return
 

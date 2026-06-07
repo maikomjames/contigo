@@ -28,6 +28,9 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None, 
         session = event.data.object
         ref = getattr(session, "client_reference_id", None)
         if ref:
+            ref = ref.strip()
+            if not ref.startswith("+") and not UUID_RE.match(ref):
+                ref = "+" + ref
             if UUID_RE.match(ref):
                 set_premium_expiry(ref)
                 logger.info("Premium web ativado: user=%s", ref)
