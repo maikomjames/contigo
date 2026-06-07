@@ -24,9 +24,9 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None, 
         logger.error("Webhook inválido: %s", e)
         raise HTTPException(status_code=400)
 
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        ref = session.get("client_reference_id")
+    if event.type == "checkout.session.completed":
+        session = event.data.object
+        ref = getattr(session, "client_reference_id", None)
         if ref:
             if UUID_RE.match(ref):
                 set_premium_expiry(ref)
