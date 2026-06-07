@@ -34,17 +34,31 @@ Seu trabalho é criar histórias curtas, originais e inesquecíveis para crianç
 - Não use markdown, asteriscos ou qualquer formatação — apenas título, linha em branco e texto"""
 
 
-def generate_story(user_input: str) -> str:
+def generate_story(
+    user_input: str,
+    child_name: str | None = None,
+    child_age: int | None = None,
+    themes: list[str] | None = None,
+) -> str:
+    context_parts = []
+    if child_name:
+        context_parts.append(f"A criança se chama {child_name}")
+    if child_age:
+        context_parts.append(f"tem {child_age} anos")
+    if themes:
+        context_parts.append(f"trabalhe sutilmente o(s) tema(s): {', '.join(themes)}")
+
+    context = ". ".join(context_parts) + "." if context_parts else ""
+
+    content = f"Crie uma história infantil com: {user_input}"
+    if context:
+        content += f"\n\nContexto: {context}"
+
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1024,
         system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Crie uma história infantil com: {user_input}",
-            }
-        ],
+        messages=[{"role": "user", "content": content}],
     )
     return message.content[0].text
 
