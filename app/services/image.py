@@ -8,7 +8,7 @@ def generate_image(image_prompt: str) -> str:
     )
 
     result = fal_client.subscribe(
-        "fal-ai/flux-1/dev",
+        "openai/gpt-image-2",
         arguments={
             "prompt": prompt,
             "image_size": "square_hd",
