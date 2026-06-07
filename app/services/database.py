@@ -47,11 +47,10 @@ def is_premium(user_id: str, token: str) -> bool:
             .table("profiles")
             .select("is_premium")
             .eq("id", user_id)
-            .maybe_single()
             .execute()
         )
-        if response and response.data:
-            return bool(response.data.get("is_premium"))
+        if response.data:
+            return bool(response.data[0].get("is_premium"))
         return False
     except Exception:
         return False
