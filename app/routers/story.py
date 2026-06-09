@@ -1,7 +1,9 @@
+import asyncio
+import json
 from typing import Optional
 from fastapi import APIRouter, Query, Request, Header, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
-from app.services.claude import generate_story, generate_image_prompt
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
+from app.services.claude import generate_story_stream, generate_image_prompt, clarify_input
 from app.services.image import generate_image
 from app.services.tts import generate_audio
 from app.services.database import get_user_from_token, count_stories_today, is_premium, log_story, ensure_profile, get_profile, DAILY_LIMIT
@@ -13,6 +15,10 @@ THEMES = [
     "amizade", "coragem", "persistência", "generosidade",
     "paciência", "aventura", "curiosidade", "respeito",
 ]
+
+
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 @router.get("/playground", response_class=HTMLResponse)
@@ -27,146 +33,182 @@ def playground():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Contigo</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya:wght@400;700&family=Alegreya+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: Georgia, serif; background: #fdf8f0; color: #333; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }}
-    h1 {{ font-size: 1.8rem; color: #7c4dbe; margin-bottom: 8px; }}
-    p.subtitle {{ color: #888; font-size: 0.95rem; margin-bottom: 32px; }}
+    body {{ font-family: 'Alegreya Sans', sans-serif; }}
+    h1, h2, h3 {{ font-family: 'Alegreya', serif; }}
+    input, textarea, select {{ font-family: 'Alegreya Sans', sans-serif; }}
 
-    .card {{ width: 100%; max-width: 600px; background: white; border-radius: 16px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 16px; }}
-    .card h2 {{ font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: #7c4dbe; margin-bottom: 16px; }}
+    @keyframes fadeIn {{ from {{ opacity:0; transform:translateY(12px); }} to {{ opacity:1; transform:translateY(0); }} }}
+    @keyframes float {{ 0%,100% {{ transform:translateY(0); }} 50% {{ transform:translateY(-10px); }} }}
+    @keyframes spin {{ to {{ transform:rotate(360deg); }} }}
+    @keyframes shimmer {{ 0% {{ background-position:-200% 0; }} 100% {{ background-position:200% 0; }} }}
 
-    .row {{ display: flex; gap: 12px; }}
-    .field {{ display: flex; flex-direction: column; gap: 6px; flex: 1; }}
-    .field label {{ font-size: 0.85rem; color: #666; }}
-    input[type=text], input[type=number], input[type=email], input[type=password] {{
-      padding: 10px 14px; border: 2px solid #e0d4f5; border-radius: 10px;
-      font-size: 1rem; font-family: inherit; outline: none; transition: border 0.2s; width: 100%;
+    .fade-in {{ animation: fadeIn 0.5s ease; }}
+    .float-anim {{ animation: float 2.2s ease-in-out infinite; }}
+
+    .chip {{
+      padding: 5px 14px; border: 2px solid #ddd6fe; border-radius: 9999px;
+      background: white; font-size: 0.82rem; font-family: 'Alegreya Sans', sans-serif;
+      cursor: pointer; transition: all 0.15s; color: #7c3aed; font-weight: 500;
     }}
-    input:focus {{ border-color: #7c4dbe; }}
+    .chip.active {{ background: #7c3aed; border-color: #7c3aed; color: white; }}
 
-    .chips {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }}
-    .chip {{ padding: 6px 14px; border: 2px solid #e0d4f5; border-radius: 20px; background: white; font-size: 0.85rem; font-family: inherit; cursor: pointer; transition: all 0.15s; color: #555; }}
-    .chip.active {{ background: #7c4dbe; border-color: #7c4dbe; color: white; }}
+    .auth-tab {{
+      padding: 8px 22px; border: none; background: none; cursor: pointer;
+      font-family: 'Alegreya Sans', sans-serif; font-size: 1rem; color: #a78bfa;
+      border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s;
+    }}
+    .auth-tab.active {{ color: #7c3aed; border-bottom-color: #7c3aed; font-weight: 700; }}
 
-    .prompt-row {{ display: flex; gap: 10px; }}
-    .prompt-row input {{ flex: 1; }}
+    .limit-badge {{
+      font-size: 0.78rem; font-weight: 600; padding: 3px 12px; border-radius: 9999px;
+      background: #ede9fe; color: #7c3aed;
+    }}
+    .limit-badge.esgotado {{ background: #fee2e2; color: #dc2626; }}
 
-    button.primary {{ padding: 12px 24px; background: #7c4dbe; color: white; border: none; border-radius: 12px; font-size: 1rem; cursor: pointer; transition: background 0.2s; white-space: nowrap; }}
-    button.primary:hover {{ background: #6a3daa; }}
-    button.primary:disabled {{ background: #bbb; cursor: not-allowed; }}
-    button.secondary {{ padding: 8px 16px; background: transparent; color: #7c4dbe; border: 2px solid #e0d4f5; border-radius: 10px; font-size: 0.9rem; cursor: pointer; font-family: inherit; }}
-    button.secondary:hover {{ border-color: #7c4dbe; }}
+    .skeleton {{
+      background: linear-gradient(90deg, #f3e8ff 25%, #ede9fe 50%, #f3e8ff 75%);
+      background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 24px; height: 280px;
+    }}
+    .status-spinner {{
+      width: 15px; height: 15px; border: 2px solid #ddd6fe;
+      border-top-color: #7c3aed; border-radius: 50%;
+      animation: spin 0.8s linear infinite; flex-shrink: 0;
+    }}
+    .story-body {{ font-size: 1.05rem; line-height: 1.9; color: #374151; white-space: pre-wrap; }}
+    .story-body p {{ margin-bottom: 1rem; white-space: normal; }}
+    .audio-placeholder {{ text-align:center; color:#c4b5fd; font-size:0.85rem; padding:16px 0; }}
 
-    .auth-tabs {{ display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e0d4f5; }}
-    .auth-tab {{ padding: 8px 20px; border: none; background: none; cursor: pointer; font-family: inherit; font-size: 0.95rem; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; }}
-    .auth-tab.active {{ color: #7c4dbe; border-bottom-color: #7c4dbe; font-weight: bold; }}
-
-    .user-bar {{ width: 100%; max-width: 600px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 0.85rem; color: #888; }}
-    .limit-badge {{ background: #f3eeff; color: #7c4dbe; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; }}
-    .limit-badge.esgotado {{ background: #fde8e8; color: #c0392b; }}
-
-    #result {{ width: 100%; max-width: 600px; margin-top: 8px; display: none; }}
-    #result img {{ width: 100%; border-radius: 16px; margin-bottom: 24px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); }}
-    .story {{ font-size: 1.05rem; line-height: 1.85; }}
-    .story p {{ margin-bottom: 14px; }}
-
-    #loading {{ display: none; margin-top: 32px; text-align: center; color: #7c4dbe; font-size: 0.95rem; }}
-    .spinner {{ width: 36px; height: 36px; border: 3px solid #e0d4f5; border-top-color: #7c4dbe; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }}
-    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-
-    #error {{ display: none; margin-top: 16px; color: #c0392b; font-size: 0.9rem; max-width: 600px; }}
-    .upgrade-banner {{ background: #f3eeff; border: 2px solid #e0d4f5; border-radius: 12px; padding: 16px 20px; text-align: center; display: none; width: 100%; max-width: 600px; margin-top: 16px; }}
-    .upgrade-banner p {{ color: #555; margin-bottom: 12px; font-size: 0.95rem; }}
+    #btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
   </style>
 </head>
-<body>
-  <h1>Contigo</h1>
-  <p class="subtitle">Histórias infantis personalizadas com ilustração</p>
+<body style="background: linear-gradient(160deg, #f3e8ff 0%, #ede9fe 50%, #faf5ff 100%); min-height:100vh;">
+
+  <!-- Header -->
+  <div style="text-align:center; padding:40px 16px 28px;">
+    <h1 style="font-size:2.8rem; color:#4c1d95; font-weight:700; margin:0;">Contigo</h1>
+    <p style="color:#7c3aed; font-size:1.05rem; margin:6px 0 0;">Histórias que aquecem o coração</p>
+  </div>
 
   <!-- AUTH -->
-  <div id="auth-section" class="card" style="max-width:600px;width:100%;">
-    <div class="auth-tabs">
-      <button class="auth-tab active" onclick="switchTab('login')">Entrar</button>
-      <button class="auth-tab" onclick="switchTab('signup')">Criar conta</button>
+  <div id="auth-section" class="fade-in" style="max-width:440px; margin:0 auto; padding:0 16px 60px;">
+    <div style="background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:28px; box-shadow:0 8px 40px rgba(124,58,237,0.12); border:1px solid #ede9fe; padding:32px;">
+      <div style="display:flex; border-bottom:2px solid #ede9fe; margin-bottom:24px;">
+        <button class="auth-tab active" onclick="switchTab('login')">Entrar</button>
+        <button class="auth-tab" onclick="switchTab('signup')">Criar conta</button>
+      </div>
+      <div id="tab-login">
+        <div style="margin-bottom:14px;">
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#6d28d9; margin-bottom:6px;">E-mail</label>
+          <input id="login-email" type="email" placeholder="seu@email.com" style="width:100%; border:2px solid #ddd6fe; border-radius:14px; padding:10px 16px; font-size:0.95rem; outline:none; transition:border 0.2s; box-sizing:border-box;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'">
+        </div>
+        <div style="margin-bottom:24px;">
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#6d28d9; margin-bottom:6px;">Senha</label>
+          <input id="login-password" type="password" placeholder="••••••••" style="width:100%; border:2px solid #ddd6fe; border-radius:14px; padding:10px 16px; font-size:0.95rem; outline:none; transition:border 0.2s; box-sizing:border-box;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'">
+        </div>
+        <button onclick="login()" style="width:100%; padding:13px; border-radius:9999px; background:#7c3aed; color:white; font-weight:700; font-size:1rem; font-family:inherit; border:none; cursor:pointer; box-shadow:0 4px 16px rgba(124,58,237,0.35);">Entrar</button>
+      </div>
+      <div id="tab-signup" style="display:none;">
+        <div style="margin-bottom:14px;">
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#6d28d9; margin-bottom:6px;">E-mail</label>
+          <input id="signup-email" type="email" placeholder="seu@email.com" style="width:100%; border:2px solid #ddd6fe; border-radius:14px; padding:10px 16px; font-size:0.95rem; outline:none; transition:border 0.2s; box-sizing:border-box;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'">
+        </div>
+        <div style="margin-bottom:24px;">
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#6d28d9; margin-bottom:6px;">Senha</label>
+          <input id="signup-password" type="password" placeholder="mínimo 6 caracteres" style="width:100%; border:2px solid #ddd6fe; border-radius:14px; padding:10px 16px; font-size:0.95rem; outline:none; transition:border 0.2s; box-sizing:border-box;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'">
+        </div>
+        <button onclick="signup()" style="width:100%; padding:13px; border-radius:9999px; background:#7c3aed; color:white; font-weight:700; font-size:1rem; font-family:inherit; border:none; cursor:pointer; box-shadow:0 4px 16px rgba(124,58,237,0.35);">Criar conta</button>
+      </div>
+      <div id="auth-error" style="display:none; font-size:0.85rem; margin-top:14px;"></div>
     </div>
-    <div id="tab-login">
-      <div class="field" style="margin-bottom:12px">
-        <label>E-mail</label>
-        <input id="login-email" type="email" placeholder="seu@email.com">
-      </div>
-      <div class="field" style="margin-bottom:20px">
-        <label>Senha</label>
-        <input id="login-password" type="password" placeholder="••••••••">
-      </div>
-      <button class="primary" style="width:100%" onclick="login()">Entrar</button>
-    </div>
-    <div id="tab-signup" style="display:none">
-      <div class="field" style="margin-bottom:12px">
-        <label>E-mail</label>
-        <input id="signup-email" type="email" placeholder="seu@email.com">
-      </div>
-      <div class="field" style="margin-bottom:20px">
-        <label>Senha</label>
-        <input id="signup-password" type="password" placeholder="mínimo 6 caracteres">
-      </div>
-      <button class="primary" style="width:100%" onclick="signup()">Criar conta</button>
-    </div>
-    <div id="auth-error" style="display:none;color:#c0392b;font-size:0.85rem;margin-top:12px;"></div>
   </div>
 
   <!-- APP -->
-  <div id="app-section" style="display:none;width:100%;display:none;flex-direction:column;align-items:center;">
-    <div class="user-bar">
-      <span id="user-email-display"></span>
-      <div style="display:flex;gap:8px;align-items:center;">
+  <div id="app-section" style="display:none; flex-direction:column; align-items:center; width:100%; max-width:600px; margin:0 auto; padding:0 16px 60px;">
+
+    <!-- User bar -->
+    <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-bottom:16px; padding:0 4px;">
+      <span id="user-email-display" style="font-size:0.82rem; color:#7c3aed;"></span>
+      <div style="display:flex; gap:8px; align-items:center;">
         <span id="limit-display" class="limit-badge"></span>
-        <button class="secondary" onclick="logout()">Sair</button>
+        <button onclick="logout()" style="font-size:0.82rem; padding:4px 14px; border-radius:9999px; border:1.5px solid #ddd6fe; background:white; color:#7c3aed; cursor:pointer; font-family:inherit;">Sair</button>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Perfil da criança</h2>
-      <div class="row">
-        <div class="field">
-          <label>Nome</label>
-          <input id="child_name" type="text" placeholder="Ex: Pedro">
+    <!-- Profile card -->
+    <div style="width:100%; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:28px; box-shadow:0 4px 24px rgba(124,58,237,0.1); border:1px solid #ede9fe; padding:24px; margin-bottom:14px;">
+      <h2 style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em; color:#7c3aed; margin:0 0 16px;">👦 Perfil da criança</h2>
+      <div style="display:flex; gap:12px; margin-bottom:16px;">
+        <div style="flex:1;">
+          <label style="display:block; font-size:0.8rem; font-weight:600; color:#6d28d9; margin-bottom:6px;">Nome</label>
+          <input id="child_name" type="text" placeholder="Ex: Pedro" style="width:100%; border:2px solid #ddd6fe; border-radius:12px; padding:9px 14px; font-size:0.95rem; outline:none; box-sizing:border-box; transition:border 0.2s;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'">
         </div>
-        <div class="field" style="max-width:120px">
-          <label>Idade</label>
-          <input id="child_age" type="number" min="2" max="10" placeholder="5">
+        <div style="width:100px;">
+          <label style="display:block; font-size:0.8rem; font-weight:600; color:#6d28d9; margin-bottom:6px;">Idade</label>
+          <input id="child_age" type="number" min="2" max="12" placeholder="5" style="width:100%; border:2px solid #ddd6fe; border-radius:12px; padding:9px 14px; font-size:0.95rem; outline:none; box-sizing:border-box; transition:border 0.2s;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'">
         </div>
       </div>
-      <div class="field" style="margin-top:16px">
-        <label>Temas (opcional)</label>
-        <div class="chips">{theme_chips}</div>
+      <div>
+        <label style="display:block; font-size:0.8rem; font-weight:600; color:#6d28d9; margin-bottom:8px;">Temas (opcional)</label>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">{theme_chips}</div>
       </div>
     </div>
 
-    <div class="card">
-      <h2>O que a criança quer ouvir hoje?</h2>
-      <div class="prompt-row">
-        <input id="prompt" type="text" placeholder="Ex: pikachu na floresta, goku no espaço...">
-        <button class="primary" id="btn" onclick="generate()">Criar</button>
+    <!-- Prompt card -->
+    <div style="width:100%; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:28px; box-shadow:0 4px 24px rgba(124,58,237,0.1); border:1px solid #ede9fe; padding:24px; margin-bottom:14px;">
+      <h2 style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em; color:#7c3aed; margin:0 0 14px;">✨ O que a criança quer ouvir hoje?</h2>
+      <div style="display:flex; gap:10px;">
+        <input id="prompt" type="text" placeholder="Ex: pikachu na floresta, goku no espaço..." style="flex:1; border:2px solid #ddd6fe; border-radius:14px; padding:10px 16px; font-size:0.95rem; outline:none; transition:border 0.2s;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'">
+        <button id="btn" onclick="generate()" style="padding:10px 22px; border-radius:9999px; background:#7c3aed; color:white; font-weight:700; font-size:0.95rem; font-family:inherit; border:none; cursor:pointer; white-space:nowrap; box-shadow:0 4px 14px rgba(124,58,237,0.3);">Criar ✨</button>
       </div>
     </div>
 
-    <div class="upgrade-banner" id="upgrade-banner">
-      <p>Você usou sua história gratuita de hoje. Assine para gerar histórias ilimitadas.</p>
-      <button class="primary" onclick="openCheckout()">Assinar agora</button>
+    <!-- Clarification card -->
+    <div id="clarification-card" class="fade-in" style="display:none; width:100%; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:28px; box-shadow:0 4px 24px rgba(124,58,237,0.1); border:1px solid #ede9fe; padding:24px; margin-bottom:14px;">
+      <h2 style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em; color:#7c3aed; margin:0 0 14px;">🤔 Conta mais um pouco</h2>
+      <div id="clarification-questions" style="font-size:0.95rem; color:#4b5563; line-height:1.85; margin-bottom:16px; white-space:pre-wrap;"></div>
+      <textarea id="clarification-answer" rows="3" placeholder="Ex: na floresta com Tails, enfrentando um robô gigante..." style="width:100%; border:2px solid #ddd6fe; border-radius:14px; padding:10px 16px; font-size:0.95rem; outline:none; resize:vertical; box-sizing:border-box; transition:border 0.2s;" onfocus="this.style.borderColor='#7c3aed'" onblur="this.style.borderColor='#ddd6fe'"></textarea>
+      <button onclick="generateWithClarification()" style="margin-top:12px; width:100%; padding:13px; border-radius:9999px; background:#7c3aed; color:white; font-weight:700; font-size:1rem; font-family:inherit; border:none; cursor:pointer; box-shadow:0 4px 16px rgba(124,58,237,0.3);">Gerar história ✨</button>
     </div>
 
-    <div id="loading">
-      <div class="spinner"></div>
-      Gerando história e ilustração...
+    <!-- Upgrade banner -->
+    <div id="upgrade-banner" class="fade-in" style="display:none; width:100%; background:rgba(245,243,255,0.95); border:1.5px solid #ddd6fe; border-radius:28px; padding:24px; text-align:center; margin-bottom:14px;">
+      <p style="color:#6d28d9; margin-bottom:14px; font-size:0.95rem; line-height:1.6;">Você usou sua história gratuita de hoje.<br>Assine para gerar histórias ilimitadas.</p>
+      <button onclick="openCheckout()" style="padding:12px 32px; border-radius:9999px; background:#7c3aed; color:white; font-weight:700; font-size:1rem; font-family:inherit; border:none; cursor:pointer; box-shadow:0 4px 16px rgba(124,58,237,0.3);">Assinar agora ⭐</button>
     </div>
-    <div id="error"></div>
 
-    <div id="result">
-      <img id="img" src="" alt="Ilustração">
-      <div id="story" class="story"></div>
-      <audio id="audio" controls style="width:100%;margin-top:24px;"></audio>
+    <!-- Loading -->
+    <div id="loading" style="display:none; text-align:center; padding:60px 0;">
+      <div style="font-size:3.5rem; margin-bottom:16px;" class="float-anim">📚</div>
+      <p style="color:#7c3aed; font-size:1rem; font-weight:500;">Iniciando...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error" style="display:none; color:#dc2626; font-size:0.9rem; padding:16px 0;"></div>
+
+    <!-- Result -->
+    <div id="result" style="display:none; width:100%;" class="fade-in">
+
+      <!-- Status -->
+      <div id="status-msg" style="display:none; align-items:center; justify-content:center; gap:8px; color:#7c3aed; font-size:0.88rem; font-weight:500; padding:8px 0 12px;">
+        <span class="status-spinner"></span>
+        <span id="status-text"></span>
+      </div>
+
+      <!-- Image -->
+      <div id="img-container" style="margin-bottom:16px;"></div>
+
+      <!-- Story card -->
+      <div style="background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-radius:28px; box-shadow:0 4px 24px rgba(124,58,237,0.1); border:1px solid #ede9fe; padding:28px; margin-bottom:16px;">
+        <div id="story" class="story-body"></div>
+      </div>
+
+      <!-- Audio -->
+      <div id="audio-container"></div>
+
     </div>
   </div>
 
@@ -174,6 +216,7 @@ def playground():
     const {{ createClient }} = supabase
     const sb = createClient('{SUPABASE_URL}', '{SUPABASE_KEY}')
     let currentSession = null
+    let pendingPrompt = ''
 
     async function init() {{
       const {{ data: {{ session }} }} = await sb.auth.getSession()
@@ -217,7 +260,7 @@ def playground():
       const banner = document.getElementById('upgrade-banner')
       const btn = document.getElementById('btn')
       if (data.is_premium) {{
-        el.textContent = 'ilimitado'
+        el.textContent = 'ilimitado ⭐'
         el.className = 'limit-badge'
         banner.style.display = 'none'
         btn.disabled = false
@@ -249,14 +292,14 @@ def playground():
       const password = document.getElementById('signup-password').value
       const {{ error }} = await sb.auth.signUp({{ email, password }})
       if (error) showAuthError(error.message)
-      else showAuthError('Verifique seu e-mail para confirmar o cadastro.', '#27ae60')
+      else showAuthError('Verifique seu e-mail para confirmar o cadastro.', '#16a34a')
     }}
 
     async function logout() {{
       await sb.auth.signOut()
     }}
 
-    function showAuthError(msg, color = '#c0392b') {{
+    function showAuthError(msg, color = '#dc2626') {{
       const el = document.getElementById('auth-error')
       el.textContent = msg
       el.style.color = color
@@ -273,11 +316,26 @@ def playground():
       }})
     }})
 
-    async function generate() {{
-      const prompt = document.getElementById('prompt').value.trim()
+    function setStatus(msg) {{
+      const el = document.getElementById('status-msg')
+      document.getElementById('status-text').textContent = msg
+      el.style.display = msg ? 'flex' : 'none'
+    }}
+
+    function generateWithClarification() {{
+      const answers = document.getElementById('clarification-answer').value.trim()
+      const enriched = answers ? `${{pendingPrompt}}. ${{answers}}` : pendingPrompt
+      document.getElementById('clarification-card').style.display = 'none'
+      document.getElementById('clarification-answer').value = ''
+      generate(true, enriched)
+    }}
+
+    async function generate(skipClarification = false, overridePrompt = null) {{
+      const prompt = overridePrompt || document.getElementById('prompt').value.trim()
       if (!prompt) return
 
       const params = new URLSearchParams({{ prompt }})
+      if (skipClarification) params.set('skip_clarification', '1')
       const name = document.getElementById('child_name').value.trim()
       const age = document.getElementById('child_age').value.trim()
       const themes = [...document.querySelectorAll('.chip.active')].map(c => c.dataset.value)
@@ -290,6 +348,23 @@ def playground():
       document.getElementById('result').style.display = 'none'
       document.getElementById('error').style.display = 'none'
       document.getElementById('upgrade-banner').style.display = 'none'
+      document.getElementById('img-container').innerHTML = ''
+      document.getElementById('story').innerHTML = ''
+      document.getElementById('audio-container').innerHTML = ''
+      document.getElementById('clarification-card').style.display = 'none'
+      setStatus('')
+      pendingPrompt = prompt
+
+      let storyText = ''
+      let resultShown = false
+
+      function showResult() {{
+        if (!resultShown) {{
+          resultShown = true
+          document.getElementById('loading').style.display = 'none'
+          document.getElementById('result').style.display = 'block'
+        }}
+      }}
 
       try {{
         const res = await fetch(`/story?${{params}}`, {{
@@ -298,24 +373,100 @@ def playground():
         }})
 
         if (res.status === 402) {{
+          document.getElementById('loading').style.display = 'none'
           document.getElementById('upgrade-banner').style.display = 'block'
           return
         }}
-        if (!res.ok) throw new Error('Erro ao gerar história.')
-        const data = await res.json()
+        if (!res.ok) {{
+          const err = await res.json().catch(() => ({{}}))
+          throw new Error(err.detail || 'Erro ao gerar história.')
+        }}
 
-        document.getElementById('img').src = data.image_url
-        document.getElementById('story').innerHTML = data.story
-          .split('\\n').filter(l => l.trim()).map(l => `<p>${{l}}</p>`).join('')
-        document.getElementById('audio').src = data.audio_url
-        document.getElementById('result').style.display = 'block'
-        updateLimitDisplay()
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {{
+          const {{ done, value }} = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, {{ stream: true }})
+
+          let idx
+          while ((idx = buffer.indexOf('\\n\\n')) !== -1) {{
+            const line = buffer.slice(0, idx)
+            buffer = buffer.slice(idx + 2)
+            if (!line.startsWith('data: ')) continue
+
+            let data
+            try {{ data = JSON.parse(line.slice(6)) }} catch {{ continue }}
+
+            switch (data.type) {{
+              case 'clarification':
+                document.getElementById('loading').style.display = 'none'
+                document.getElementById('clarification-questions').textContent = data.questions
+                document.getElementById('clarification-card').style.display = 'block'
+                document.getElementById('btn').disabled = false
+                break
+
+              case 'progress':
+                showResult()
+                setStatus(data.message)
+                if (data.message.includes('ilustração')) {{
+                  document.getElementById('img-container').innerHTML = '<div class="skeleton"></div>'
+                }} else if (data.message.includes('narração')) {{
+                  document.getElementById('audio-container').innerHTML = '<p class="audio-placeholder">Gerando narração...</p>'
+                }}
+                break
+
+              case 'story_chunk':
+                showResult()
+                storyText += data.text
+                document.getElementById('story').textContent = storyText
+                break
+
+              case 'story_done':
+                document.getElementById('story').innerHTML = storyText
+                  .split('\\n').filter(l => l.trim()).map(l => `<p>${{l}}</p>`).join('')
+                break
+
+              case 'image_url':
+                document.getElementById('img-container').innerHTML =
+                  `<img src="${{data.url}}" alt="Ilustração" style="width:100%;border-radius:24px;box-shadow:0 8px 32px rgba(124,58,237,0.18);margin-bottom:4px;">`
+                break
+
+              case 'image_error':
+                document.getElementById('img-container').innerHTML = ''
+                break
+
+              case 'audio_url':
+                document.getElementById('audio-container').innerHTML =
+                  `<div style="background:rgba(255,255,255,0.92);border-radius:24px;box-shadow:0 4px 20px rgba(124,58,237,0.1);border:1px solid #ede9fe;padding:20px 24px;">
+                    <p style="font-size:0.78rem;text-transform:uppercase;letter-spacing:0.1em;color:#7c3aed;font-weight:700;margin:0 0 12px;">🎙 Narração</p>
+                    <audio controls style="width:100%;" src="${{data.url}}"></audio>
+                  </div>`
+                break
+
+              case 'audio_error':
+                document.getElementById('audio-container').innerHTML = ''
+                break
+
+              case 'done':
+                setStatus('')
+                updateLimitDisplay()
+                break
+
+              case 'error':
+                throw new Error(data.message || 'Erro desconhecido')
+            }}
+          }}
+        }}
       }} catch (err) {{
         document.getElementById('error').textContent = err.message
         document.getElementById('error').style.display = 'block'
+        if (!resultShown) document.getElementById('loading').style.display = 'none'
       }} finally {{
         document.getElementById('btn').disabled = false
-        document.getElementById('loading').style.display = 'none'
       }}
     }}
 
@@ -345,12 +496,13 @@ def story_usage(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/story")
-def create_story(
+async def create_story(
     request: Request,
     prompt: str = Query(...),
     child_name: Optional[str] = Query(None),
     child_age: Optional[int] = Query(None),
     themes: Optional[str] = Query(None),
+    skip_clarification: bool = Query(False),
     authorization: Optional[str] = Header(None),
 ):
     if not authorization or not authorization.startswith("Bearer "):
@@ -361,7 +513,7 @@ def create_story(
     if not user:
         raise HTTPException(status_code=401, detail="Sessão inválida")
 
-    ensure_profile(user.id, token)
+    await asyncio.to_thread(ensure_profile, user.id, token)
 
     if not is_premium(user.id, token):
         count = count_stories_today(user.id, token)
@@ -369,20 +521,53 @@ def create_story(
             raise HTTPException(status_code=402, detail="Limite diário atingido")
 
     theme_list = themes.split(",") if themes else []
-    story = generate_story(prompt, child_name=child_name, child_age=child_age, themes=theme_list)
+    base_url = str(request.base_url).rstrip("/")
+    user_id = user.id
 
-    image_prompt = generate_image_prompt(story)
-    image_url = generate_image(image_prompt)
+    async def stream():
+        story_text = ""
+        try:
+            if not skip_clarification:
+                questions = await asyncio.to_thread(clarify_input, prompt)
+                if questions:
+                    yield _sse({"type": "clarification", "questions": questions})
+                    return
 
-    audio_path = generate_audio(story)
-    base = str(request.base_url).rstrip("/")
-    audio_url = f"{base}/audio/{audio_path.name}"
+            yield _sse({"type": "progress", "message": "Escrevendo a história..."})
 
-    log_story(user.id, prompt, token)
+            async for chunk in generate_story_stream(
+                prompt, child_name=child_name, child_age=child_age, themes=theme_list
+            ):
+                story_text += chunk
+                yield _sse({"type": "story_chunk", "text": chunk})
 
-    return JSONResponse({
-        "story": story,
-        "image_prompt": image_prompt,
-        "image_url": image_url,
-        "audio_url": audio_url,
-    })
+            yield _sse({"type": "story_done"})
+
+            await asyncio.to_thread(log_story, user_id, prompt, token)
+
+            yield _sse({"type": "progress", "message": "Criando ilustração..."})
+            try:
+                image_prompt = await asyncio.to_thread(generate_image_prompt, story_text, prompt)
+                image_url = await asyncio.to_thread(generate_image, image_prompt)
+                yield _sse({"type": "image_url", "url": image_url})
+            except Exception:
+                yield _sse({"type": "image_error"})
+
+            yield _sse({"type": "progress", "message": "Gerando narração..."})
+            try:
+                audio_path = await asyncio.to_thread(generate_audio, story_text)
+                audio_url = f"{base_url}/audio/{audio_path.name}"
+                yield _sse({"type": "audio_url", "url": audio_url})
+            except Exception:
+                yield _sse({"type": "audio_error"})
+
+            yield _sse({"type": "done"})
+
+        except Exception as e:
+            yield _sse({"type": "error", "message": str(e)})
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
