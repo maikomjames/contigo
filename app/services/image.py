@@ -8,7 +8,7 @@ def generate_image(image_prompt: str) -> str:
     )
 
     result = fal_client.subscribe(
-        "fal-ai/flux-1/dev",
+        "fal-ai/nano-banana-2",
         arguments={
             "prompt": prompt,
             "image_size": "square_hd",
